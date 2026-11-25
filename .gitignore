@@ -1,0 +1,26 @@
+# Binaries & build artifacts
+/bin/
+/dist/
+/gomap
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test & benchmark outputs
+*.test
+*.out
+coverage.txt
+coverage.html
+*.prof
+
+# Go workspace
+go.work
+go.work.sum
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+*.swp
+*~

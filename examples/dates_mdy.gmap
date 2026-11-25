@@ -1,0 +1,16 @@
+# Dates (MMDDYYYY) - Gomap Script
+# =======================================================
+# Generates US-formatted calendar dates from 1800 to 2030
+
+%define YEAR #[1800-2030]
+%define MONTHS_31 [01|03|05|07|08|10|12]
+%define MONTHS_30 [04|06|09|11]
+
+# February (01..29)
+02#[01-29]$YEAR;
+
+# 30-day months
+$MONTHS_30;#[01-30]$YEAR;
+
+# 31-day months
+$MONTHS_31;#[01-31]$YEAR;

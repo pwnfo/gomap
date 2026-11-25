@@ -1,0 +1,8 @@
+# Credential Pairs - Gomap Script
+# ================================================================
+# Generates <user>:<password> combinations from external wordlists
+
+%include ./wordlists/users.txt
+%include ./wordlists/pass.txt
+
+^:^             # e.g. admin:123456, ryan:password

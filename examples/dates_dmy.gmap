@@ -1,0 +1,16 @@
+# Dates (DDMMYYYY) - Gomap Script
+# ==============================================================================
+# Generates calendar dates from 1800 to 2030 using zero-padded ranges and macros
+
+%define YEAR #[1800-2030]
+%define MONTHS_31 [01|03|05|07|08|10|12]
+%define MONTHS_30 [04|06|09|11]
+
+# February (01..29)
+#[01-29]02$YEAR;
+
+# 30-day months
+#[01-30]$MONTHS_30;$YEAR;
+
+# 31-day months
+#[01-31]$MONTHS_31;$YEAR;
