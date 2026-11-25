@@ -38,7 +38,7 @@ Control compression strength with `-zl` / `-compresslevel`:
 Before starting a compressed run (or when inspecting a pattern with `-st -z <format>`), Gomap predicts the final compressed size:
 
 * **Small wordlists (`<= 512 KB`)**: Compressed completely in memory to report the exact final byte count.
-* **Large wordlists (`> 512 KB`)**: Uses $O(1)$ indexed seeking to sample four `128 KB` slices across the keyspace (`0%`, `33%`, `66%`, `95%`) through the selected codec and compression level, projecting the compressed size (`~X MB`) in milliseconds.
+* **Large wordlists (`> 512 KB`)**: Uses `O(1)` indexed seeking to sample four `128 KB` slices across the keyspace (`0%`, `33%`, `66%`, `95%`) through the selected codec and compression level, projecting the compressed size (`~X MB`) in milliseconds.
 
 ```bash
 gomap '/l{4}' -st -z zstd -zl 6

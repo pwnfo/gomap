@@ -25,7 +25,7 @@ $ gomap 'pin_#[0000-9999]' -st
 
 ### Unmaterialized Large Ranges
 
-Ranges up to `65,536` values are pre-formatted in memory for speed. Ranges larger than `65,536` values (e.g., `#[0-4294967295]`) are evaluated arithmetically on the fly, using constant memory and computing `-stats` and `-start` seeks in $O(1)$ time.
+Ranges up to `65,536` values are pre-formatted in memory for speed. Ranges larger than `65,536` values (e.g., `#[0-4294967295]`) are evaluated arithmetically on the fly, using constant memory and computing `-stats` and `-start` seeks in `O(1)` time.
 
 ---
 

@@ -201,7 +201,7 @@ $ gomap '\/d/d'
 
 ## Documentation
 
-Complete reference guides are available in [`docs/`](docs/index.md):
+Full documentation is available at [gomap.readthedocs.io](https://gomap.readthedocs.io/) and in [`docs/`](docs/index.md):
 
 * [Installation & Cross-Compilation](docs/installation.md)
 * [CLI Reference](docs/cli-reference.md)

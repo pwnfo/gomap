@@ -1,0 +1,62 @@
+site_name: Gomap
+site_description: Generate high-performance wordlists using pattern logic and expressions.
+site_author: Ryan R.
+site_url: https://gomap.readthedocs.io/
+repo_name: pwnfo/gomap
+repo_url: https://github.com/pwnfo/gomap
+
+docs_dir: .
+site_dir: ../site
+
+theme:
+  name: material
+  logo: images/icon.png
+  favicon: images/icon.png
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+
+nav:
+  - Overview: index.md
+  - Getting Started:
+      - Installation & Building: installation.md
+      - CLI Reference: cli-reference.md
+  - Pattern Language:
+      - Expressions & Classes: expressions.md
+      - Numeric Ranges & Files: ranges-and-files.md
+      - Advanced Concepts: advanced.md
+      - Streaming Compression: compression.md
+  - Go SDK:
+      - Library Reference: library.md

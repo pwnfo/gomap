@@ -1,6 +1,8 @@
 # Binaries & build artifacts
 /bin/
 /dist/
+/site/
+/docs/images/
 /gomap
 *.exe
 *.exe~
