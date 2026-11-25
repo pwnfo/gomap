@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/dsnet/compress v0.0.1
 	github.com/klauspost/compress v1.20.5
+	github.com/klauspost/pgzip v1.3.0
 	github.com/ulikunitz/xz v0.5.17
 	golang.org/x/term v0.48.0
 )

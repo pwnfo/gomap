@@ -36,6 +36,7 @@ type Options struct {
 
 type orderedChunk struct {
 	seq    uint64
+	words  uint64
 	bufPtr *[]byte
 	err    error
 }
@@ -70,6 +71,7 @@ func Run(ctx context.Context, engine *gomap.Engine, plan *gomap.Plan, stats goma
 		opts.Compression,
 		opts.CompressLevel,
 		opts.ForceOverwrite,
+		workers,
 	)
 	if err != nil {
 		log.Error("%s", err.Error())
@@ -77,8 +79,15 @@ func Run(ctx context.Context, engine *gomap.Engine, plan *gomap.Plan, stats goma
 	}
 
 	var progressBytes atomic.Uint64
+	var progressWords atomic.Uint64
 	showProgress := !opts.Quiet && (opts.OutputPath != "" || !ui.IsTerminal(os.Stdout.Fd()))
-	bar := ui.NewProgressBar(&progressBytes, stats.TotalBytes)
+
+	var bar *ui.ProgressBar
+	if opts.Compression != compress.FormatNone {
+		bar = ui.NewWordProgressBar(&progressWords, stats.TotalWords)
+	} else {
+		bar = ui.NewProgressBar(&progressBytes, stats.TotalBytes)
+	}
 
 	log.Info("Started @ %s", time.Now().Format(time.ANSIC))
 	if showProgress {
@@ -91,9 +100,9 @@ func Run(ctx context.Context, engine *gomap.Engine, plan *gomap.Plan, stats goma
 
 	var genErr error
 	if workers == 1 || stats.TotalWords.Sign() == 0 {
-		genErr = runSingleWorker(runCtx, engine, plan, stats, opts.Delimiter, flushThreshold, outWriter, &progressBytes)
+		genErr = runSingleWorker(runCtx, engine, plan, stats, opts.Delimiter, flushThreshold, outWriter, &progressBytes, &progressWords)
 	} else {
-		genErr = runOrderedWorkers(runCtx, engine, plan, stats, workers, opts.Delimiter, flushThreshold, outWriter, &progressBytes)
+		genErr = runOrderedWorkers(runCtx, engine, plan, stats, workers, opts.Delimiter, flushThreshold, outWriter, &progressBytes, &progressWords)
 	}
 
 	closeErr := outWriter.Close()
@@ -142,6 +151,7 @@ func runSingleWorker(
 	flushThreshold int,
 	outWriter interface{ Write([]byte) (int, error) },
 	progressBytes *atomic.Uint64,
+	progressWords *atomic.Uint64,
 ) error {
 	if stats.TotalWords.Sign() == 0 {
 		return nil
@@ -160,10 +170,13 @@ func runSingleWorker(
 			batch = ^uint64(0)
 		}
 
-		err := engine.GenerateRange(ctx, plan, curStart, batch, delimiter, flushThreshold, func(chunk []byte, _ uint64) error {
+		err := engine.GenerateRange(ctx, plan, curStart, batch, delimiter, flushThreshold, func(chunk []byte, words uint64) error {
 			n, wErr := outWriter.Write(chunk)
 			if n > 0 {
 				progressBytes.Add(uint64(n))
+			}
+			if wErr == nil && words > 0 {
+				progressWords.Add(words)
 			}
 			return wErr
 		})
@@ -194,6 +207,7 @@ func runOrderedWorkers(
 	flushThreshold int,
 	outWriter interface{ Write([]byte) (int, error) },
 	progressBytes *atomic.Uint64,
+	progressWords *atomic.Uint64,
 ) error {
 	totalWords := stats.TotalWords.Uint64()
 	if totalWords == 0 {
@@ -284,7 +298,7 @@ func runOrderedWorkers(
 				})
 
 				select {
-				case resultCh <- orderedChunk{seq: seq, bufPtr: bufPtr, err: err}:
+				case resultCh <- orderedChunk{seq: seq, words: cnt, bufPtr: bufPtr, err: err}:
 				case <-workCtx.Done():
 					bufPool.Put(bufPtr)
 					return
@@ -342,6 +356,7 @@ func runOrderedWorkers(
 					bufPool.Put(ready.bufPtr)
 					break
 				}
+				progressWords.Add(ready.words)
 			}
 			bufPool.Put(ready.bufPtr)
 			expectedSeq++

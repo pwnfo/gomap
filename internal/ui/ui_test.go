@@ -27,6 +27,11 @@ func TestFormatETAAndProgressLine(t *testing.T) {
 	if !strings.HasSuffix(truncated, "...") {
 		t.Errorf("expected truncated line ending with ..., got %q", truncated)
 	}
+
+	wordLine := RenderWordProgressLine("⠋", 250000, big.NewInt(1000000), 0.5, 80)
+	if !strings.Contains(wordLine, "250.00K / 1.00M words @ 500.00K/s") {
+		t.Errorf("unexpected word progress line: %q", wordLine)
+	}
 }
 
 func TestLogger(t *testing.T) {

@@ -10,9 +10,52 @@ import (
 )
 
 var (
-	sizeUnits = []string{"B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"}
-	sizeRe    = regexp.MustCompile(`^\s*(\d+(?:\.\d+)?)\s*([KMGTP]?B?)?\s*$`)
+	sizeUnits  = []string{"B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"}
+	countUnits = []string{"", "K", "M", "B", "T", "Q"}
+	sizeRe     = regexp.MustCompile(`^\s*(\d+(?:\.\d+)?)\s*([KMGTP]?B?)?\s*$`)
 )
+
+// FormatCount formats a numeric count or rate (float64) with compact metric suffixes (K, M, B, T).
+func FormatCount(n float64, decimals int) string {
+	if n < 0 {
+		n = 0
+	}
+	if n < 1000.0 {
+		return fmt.Sprintf("%.0f", n)
+	}
+	for i := 1; i < len(countUnits); i++ {
+		n /= 1000.0
+		if n < 1000.0 || i == len(countUnits)-1 {
+			return fmt.Sprintf("%.*f%s", decimals, n, countUnits[i])
+		}
+	}
+	return fmt.Sprintf("%.*fQ", decimals, n)
+}
+
+// FormatCountBig formats an arbitrary-precision *big.Int count with compact metric suffixes (K, M, B, T).
+func FormatCountBig(n *big.Int, decimals int) string {
+	if n == nil || n.Sign() <= 0 {
+		return "0"
+	}
+	thousand := big.NewInt(1000)
+	if n.Cmp(thousand) < 0 {
+		return n.String()
+	}
+
+	bf := new(big.Float).SetPrec(128).SetInt(n)
+	kf := big.NewFloat(1000.0)
+	for i := 1; i < len(countUnits); i++ {
+		bf.Quo(bf, kf)
+		if bf.Cmp(kf) < 0 || i == len(countUnits)-1 {
+			val, _ := bf.Float64()
+			if i == len(countUnits)-1 && val >= 1000.0 {
+				return bf.Text('e', 2)
+			}
+			return fmt.Sprintf("%.*f%s", decimals, val, countUnits[i])
+		}
+	}
+	return n.String()
+}
 
 // FormatSize formats a byte count (float64) into a human-readable binary unit string.
 func FormatSize(b float64, decimals int) string {

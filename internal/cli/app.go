@@ -461,6 +461,7 @@ func writeCombinationTable(out io.Writer, rawExprs []string, summaries []gomap.E
 }
 
 func printStatsReport(
+	ctx context.Context,
 	out io.Writer,
 	engine *gomap.Engine,
 	plan *gomap.Plan,
@@ -468,6 +469,8 @@ func printStatsReport(
 	tokensList [][]gomap.Token,
 	cfg Config,
 	delim string,
+	compFormat compress.Format,
+	compLevelPtr *int,
 ) int {
 	delimLen := len(delim)
 
@@ -567,6 +570,25 @@ func printStatsReport(
 	_, _ = fmt.Fprintf(out, "  Entries to generate: %s\n", format.FormatBigIntCommas(filtered.TotalWords))
 	_, _ = fmt.Fprintf(out, "  Estimated size:      %s (%s %s)\n", format.FormatSizeBig(filtered.TotalBytes, 2), filtered.TotalBytes.String(), totalByteUnit)
 
+	if compFormat != compress.FormatNone {
+		if est, err := compress.EstimateSize(ctx, engine, plan, filtered, delim, compFormat, compLevelPtr); err == nil {
+			compSizeStr := format.FormatSizeBig(est.Bytes, 2)
+			reduction := (1.0 - est.Ratio) * 100.0
+			label := fmt.Sprintf("Compressed (%s):", compFormat)
+			if est.Exact {
+				compUnit := "bytes"
+				if est.Bytes.Cmp(big.NewInt(1)) == 0 {
+					compUnit = "byte"
+				}
+				_, _ = fmt.Fprintf(out, "  %-20s %s (%s %s)\n", label, compSizeStr, est.Bytes.String(), compUnit)
+			} else if reduction >= 0 {
+				_, _ = fmt.Fprintf(out, "  %-20s ~%s (~%.1f%% reduction)\n", label, compSizeStr, reduction)
+			} else {
+				_, _ = fmt.Fprintf(out, "  %-20s ~%s\n", label, compSizeStr)
+			}
+		}
+	}
+
 	return 0
 }
 
@@ -614,7 +636,7 @@ func Execute(ctx context.Context, prog string, rawArgs []string, stdout, stderr 
 			log.Error("%s", err.Error())
 			return 1
 		}
-		if cfg.Output == "" {
+		if cfg.Output == "" && !cfg.Stats {
 			log.Error("compression requires -o/-output to specify an output file.")
 			return 1
 		}
@@ -714,7 +736,7 @@ func Execute(ctx context.Context, prog string, rawArgs []string, stdout, stderr 
 			log.Error("%s", err.Error())
 			return 1
 		}
-		return printStatsReport(stdout, engine, fullPlan, rawExprs, allTokens, cfg, delim)
+		return printStatsReport(ctx, stdout, engine, fullPlan, rawExprs, allTokens, cfg, delim, compFormat, compLevelPtr)
 	}
 
 	log.Info("%s\n", version.Full())
@@ -725,11 +747,20 @@ func Execute(ctx context.Context, prog string, rawArgs []string, stdout, stderr 
 		return 1
 	}
 
-	estSize := format.FormatSizeBig(statsRes.TotalBytes, 2)
-	if compFormat == compress.FormatNone {
-		log.Info("Entries to generate: %s (%s).", format.FormatBigIntCommas(statsRes.TotalWords), estSize)
-	} else {
-		log.Info("Entries to generate: %s (%s uncompressed, %s).", format.FormatBigIntCommas(statsRes.TotalWords), estSize, compFormat)
+	if !cfg.Quiet {
+		estSize := format.FormatSizeBig(statsRes.TotalBytes, 2)
+		if compFormat == compress.FormatNone {
+			log.Info("Entries to generate: %s (%s).", format.FormatBigIntCommas(statsRes.TotalWords), estSize)
+		} else if est, err := compress.EstimateSize(ctx, engine, fullPlan, statsRes, delim, compFormat, compLevelPtr); err == nil {
+			compStr := format.FormatSizeBig(est.Bytes, 2)
+			prefix := "~"
+			if est.Exact {
+				prefix = ""
+			}
+			log.Info("Entries to generate: %s (%s -> %s%s %s).", format.FormatBigIntCommas(statsRes.TotalWords), estSize, prefix, compStr, compFormat)
+		} else {
+			log.Info("Entries to generate: %s (%s uncompressed, %s).", format.FormatBigIntCommas(statsRes.TotalWords), estSize, compFormat)
+		}
 	}
 
 	if !cfg.Quiet && !cfg.NonInteractive {

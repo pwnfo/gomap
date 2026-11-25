@@ -3,12 +3,14 @@ package compress
 import (
 	"compress/bzip2"
 	"compress/gzip"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/klauspost/compress/zstd"
+	"github.com/pwnfo/gomap/pkg/gomap"
 	"github.com/ulikunitz/xz"
 )
 
@@ -117,6 +119,62 @@ func TestCompressedStreamsRoundTrip(t *testing.T) {
 		got, err := io.ReadAll(zr)
 		if err != nil || string(got) != payload {
 			t.Fatalf("got %q, err %v", string(got), err)
+		}
+	})
+
+	t.Run("parallel_pgzip_and_estimate", func(t *testing.T) {
+		eng := gomap.NewEngine()
+		plan, err := eng.Compile("/a{4}", nil) // 456,976 words (~2.28 MB > 512KB threshold)
+		if err != nil {
+			t.Fatal(err)
+		}
+		st, err := eng.Stats(plan, 1, "", "", false, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		est, err := EstimateSize(context.Background(), eng, plan, st, "\n", FormatGzip, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if est.Exact {
+			t.Errorf("expected sampled estimate (Exact=false) for >512KB dataset")
+		}
+		if est.Bytes.Sign() <= 0 || est.Bytes.Cmp(st.TotalBytes) >= 0 {
+			t.Errorf("unexpected estimate %s vs raw %s", est.Bytes, st.TotalBytes)
+		}
+
+		// Write with parallel pgzip (concurrency = 4) and verify standard gzip reader decodes all bytes!
+		gzOut := filepath.Join(tmp, "parallel.txt.gz")
+		w, _, err := OpenOutput(gzOut, 64*1024, FormatGzip, nil, true, 4)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := eng.GenerateRange(context.Background(), plan, st.StartIndex, st.TotalWords.Uint64(), "\n", 128*1024, func(chunk []byte, _ uint64) error {
+			_, wErr := w.Write(chunk)
+			return wErr
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := w.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		f, err := os.Open(gzOut)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		gr, err := gzip.NewReader(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded, err := io.ReadAll(gr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if int64(len(decoded)) != st.TotalBytes.Int64() {
+			t.Fatalf("decoded len = %d, want %s", len(decoded), st.TotalBytes)
 		}
 	})
 }

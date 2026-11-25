@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/dsnet/compress/bzip2"
 	"github.com/klauspost/compress/gzip"
 	"github.com/klauspost/compress/zstd"
+	"github.com/klauspost/pgzip"
 	"github.com/ulikunitz/xz"
 )
 
@@ -54,11 +56,13 @@ func Extension(f Format) string {
 	case FormatLZMA:
 		return ".xz"
 	case FormatZstd:
-		return ".zst"
+		return FormatZstdExt
 	default:
 		return ""
 	}
 }
+
+const FormatZstdExt = ".zst"
 
 // EnsureExtension appends the canonical compression extension to path if missing.
 func EnsureExtension(f Format, path string) string {
@@ -79,7 +83,7 @@ func LevelRange(f Format) (int, int, int) {
 	case FormatLZMA:
 		return 0, 9, 6
 	case FormatZstd:
-		return 1, 9, 3
+		return 1, 9, 6
 	default:
 		return 0, 0, 0
 	}
@@ -134,6 +138,55 @@ func zstdEncoderLevel(level int) zstd.EncoderLevel {
 	}
 }
 
+// NewStreamWriter wraps dst in a streaming compressor for the given Format, level, and concurrency.
+// Uses parallel block compression (pgzip) for gzip and concurrent zstd encoding when concurrency > 1.
+func NewStreamWriter(dst io.Writer, format Format, level *int, concurrency int) (io.WriteCloser, error) {
+	lvl, err := ValidateLevel(format, level)
+	if err != nil {
+		return nil, err
+	}
+	if concurrency <= 0 {
+		concurrency = runtime.NumCPU()
+	}
+	if concurrency > 64 {
+		concurrency = 64
+	}
+
+	switch format {
+	case FormatGzip:
+		if concurrency > 1 {
+			pw, err := pgzip.NewWriterLevel(dst, lvl)
+			if err != nil {
+				return nil, err
+			}
+			// 256KB blocks across worker goroutines yield strong deflate ratio with high multi-core speed.
+			if err := pw.SetConcurrency(256*1024, concurrency); err != nil {
+				_ = pw.Close()
+				return nil, err
+			}
+			return pw, nil
+		}
+		return gzip.NewWriterLevel(dst, lvl)
+
+	case FormatBzip2:
+		return bzip2.NewWriter(dst, &bzip2.WriterConfig{Level: lvl})
+
+	case FormatLZMA:
+		cfg := xz.WriterConfig{DictCap: xzDictCapForLevel(lvl)}
+		return cfg.NewWriter(dst)
+
+	case FormatZstd:
+		return zstd.NewWriter(
+			dst,
+			zstd.WithEncoderLevel(zstdEncoderLevel(lvl)),
+			zstd.WithEncoderConcurrency(concurrency),
+		)
+
+	default:
+		return nil, fmt.Errorf("unsupported compression format %q", format)
+	}
+}
+
 type stackedWriteCloser struct {
 	top     io.Writer
 	closers []io.Closer // closed in forward order (innermost compressor -> bufio -> file)
@@ -171,8 +224,8 @@ func (b *bufioFlushCloser) Close() error {
 const DefaultBufferSize = 1024 * 1024
 
 // OpenOutput opens stdout (when path == "") or a target file with buffered I/O and optional streaming compression.
-// Returns the WriteCloser, the resolved output file path, and any error.
-func OpenOutput(path string, bufferSize int, format Format, level *int, forceOverwrite bool) (io.WriteCloser, string, error) {
+// Optional concurrency specifies the encoder thread count for parallel codecs (gzip via pgzip, zstd).
+func OpenOutput(path string, bufferSize int, format Format, level *int, forceOverwrite bool, concurrency ...int) (io.WriteCloser, string, error) {
 	if bufferSize <= 0 {
 		bufferSize = DefaultBufferSize
 	}
@@ -194,7 +247,7 @@ func OpenOutput(path string, bufferSize int, format Format, level *int, forceOve
 
 	flags := os.O_WRONLY | os.O_CREATE
 	if format != FormatNone && !forceOverwrite {
-		// Prevent silently overwriting existing compressed archives unless --force is given.
+		// Prevent silently overwriting existing compressed archives unless -fo/-force is given.
 		flags |= os.O_EXCL
 	} else {
 		flags |= os.O_TRUNC
@@ -223,28 +276,12 @@ func OpenOutput(path string, bufferSize int, format Format, level *int, forceOve
 		}, resolvedPath, nil
 	}
 
-	lvl, err := ValidateLevel(format, level)
-	if err != nil {
-		_ = file.Close()
-		_ = os.Remove(resolvedPath)
-		return nil, resolvedPath, err
+	encThreads := 1
+	if len(concurrency) > 0 {
+		encThreads = concurrency[0]
 	}
 
-	var compWriter io.WriteCloser
-	switch format {
-	case FormatGzip:
-		compWriter, err = gzip.NewWriterLevel(bw, lvl)
-	case FormatBzip2:
-		compWriter, err = bzip2.NewWriter(bw, &bzip2.WriterConfig{Level: lvl})
-	case FormatLZMA:
-		cfg := xz.WriterConfig{DictCap: xzDictCapForLevel(lvl)}
-		compWriter, err = cfg.NewWriter(bw)
-	case FormatZstd:
-		compWriter, err = zstd.NewWriter(bw, zstd.WithEncoderLevel(zstdEncoderLevel(lvl)))
-	default:
-		err = fmt.Errorf("unsupported compression format %q", format)
-	}
-
+	compWriter, err := NewStreamWriter(bw, format, level, encThreads)
 	if err != nil {
 		_ = file.Close()
 		_ = os.Remove(resolvedPath)

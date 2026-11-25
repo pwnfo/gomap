@@ -32,7 +32,19 @@ func FormatETA(seconds float64) string {
 	return fmt.Sprintf("%02d:%02d", mins, secs)
 }
 
-// RenderProgressLine formats a single status line clamped to terminal width.
+func clampLineWidth(line string, width int) string {
+	runeCount := utf8.RuneCountInString(line)
+	if width > 0 && runeCount > width {
+		runes := []rune(line)
+		if width <= 3 {
+			return string(runes[:width])
+		}
+		return string(runes[:width-3]) + "..."
+	}
+	return line
+}
+
+// RenderProgressLine formats a byte-oriented status line clamped to terminal width.
 func RenderProgressLine(spinner string, current uint64, total *big.Int, elapsed float64, width int) string {
 	var totalFloat float64
 	if total != nil && total.Sign() > 0 {
@@ -74,21 +86,59 @@ func RenderProgressLine(spinner string, current uint64, total *big.Int, elapsed 
 		FormatETA(eta),
 	)
 
-	runeCount := utf8.RuneCountInString(line)
-	if width > 0 && runeCount > width {
-		runes := []rune(line)
-		if width <= 3 {
-			return string(runes[:width])
-		}
-		return string(runes[:width-3]) + "..."
+	return clampLineWidth(line, width)
+}
+
+// RenderWordProgressLine formats a word-count status line (with K/M/B/T suffixes) used during compressed output.
+func RenderWordProgressLine(spinner string, current uint64, total *big.Int, elapsed float64, width int) string {
+	var totalFloat float64
+	if total != nil && total.Sign() > 0 {
+		totalFloat, _ = new(big.Float).SetInt(total).Float64()
 	}
-	return line
+	curFloat := float64(current)
+	if totalFloat > 0 && curFloat > totalFloat {
+		curFloat = totalFloat
+	}
+
+	percent := 100.0
+	if totalFloat > 0 {
+		percent = math.Min((curFloat/totalFloat)*100.0, 100.0)
+	}
+
+	speed := 0.0
+	if elapsed > 0 {
+		speed = curFloat / elapsed
+	}
+
+	eta := -1.0
+	if speed > 0 && totalFloat > 0 {
+		rem := math.Max(totalFloat-curFloat, 0)
+		eta = rem / speed
+	}
+
+	curBig := new(big.Int).SetUint64(current)
+	if total != nil && curBig.Cmp(total) > 0 {
+		curBig.Set(total)
+	}
+
+	line := fmt.Sprintf(
+		"%s [%3.0f%%] %s / %s words @ %s/s ETA %s",
+		spinner,
+		percent,
+		format.FormatCountBig(curBig, 2),
+		format.FormatCountBig(total, 2),
+		format.FormatCount(speed, 2),
+		FormatETA(eta),
+	)
+
+	return clampLineWidth(line, width)
 }
 
 // ProgressBar renders a live non-blocking terminal progress indicator on stderr.
 type ProgressBar struct {
 	progress *atomic.Uint64
 	total    *big.Int
+	wordMode bool
 	out      io.Writer
 	fd       uintptr
 	stopCh   chan struct{}
@@ -97,11 +147,24 @@ type ProgressBar struct {
 	started  bool
 }
 
-// NewProgressBar creates a new ProgressBar tracking `progress` out of `total` bytes.
+// NewProgressBar creates a new byte-tracking ProgressBar (`X MB / Y MB`).
 func NewProgressBar(progress *atomic.Uint64, total *big.Int) *ProgressBar {
 	return &ProgressBar{
 		progress: progress,
 		total:    total,
+		wordMode: false,
+		out:      os.Stderr,
+		fd:       os.Stderr.Fd(),
+		stopCh:   make(chan struct{}),
+	}
+}
+
+// NewWordProgressBar creates a new word-tracking ProgressBar (`X / Y words` with K/M/B/T abbreviations).
+func NewWordProgressBar(progress *atomic.Uint64, total *big.Int) *ProgressBar {
+	return &ProgressBar{
+		progress: progress,
+		total:    total,
+		wordMode: true,
 		out:      os.Stderr,
 		fd:       os.Stderr.Fd(),
 		stopCh:   make(chan struct{}),
@@ -133,7 +196,12 @@ func (p *ProgressBar) Start() {
 			cur := p.progress.Load()
 			elapsed := time.Since(start).Seconds()
 			spinner := spinnerFrames[frameIdx%len(spinnerFrames)]
-			line := RenderProgressLine(spinner, cur, p.total, elapsed, width)
+			var line string
+			if p.wordMode {
+				line = RenderWordProgressLine(spinner, cur, p.total, elapsed, width)
+			} else {
+				line = RenderProgressLine(spinner, cur, p.total, elapsed, width)
+			}
 			_, _ = io.WriteString(p.out, "\r\033[2K"+line)
 			frameIdx++
 

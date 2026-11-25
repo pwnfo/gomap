@@ -1038,11 +1038,11 @@ func runesSingle(nodes []*Node, inherited map[int]bindStatMeta) (*big.Int, *big.
 
 // ExprSummary holds combinatorial metrics and representative sample words for one sub-expression.
 type ExprSummary struct {
-	Words      *big.Int
-	AvgChars   float64
-	HeadWords  []string
-	TailWords  []string
-	AllShown   bool
+	Words     *big.Int
+	AvgChars  float64
+	HeadWords []string
+	TailWords []string
+	AllShown  bool
 }
 
 // InspectExpressions computes per-expression counts, average rune lengths, and O(1) boundary
@@ -1107,7 +1107,7 @@ func (g *Engine) InspectExpressions(plan *Plan) ([]ExprSummary, error) {
 			}
 		}
 
-	summaries[i] = sum
+		summaries[i] = sum
 	}
 
 	return summaries, nil
